@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>
+        Audio File Comparator
+    </title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 50px;
+        }
+        form {
+            display: inline-block;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+        }
+        input[type="file"] {
+            margin-bottom: 10px;
+        }
+        input[type="submit"] {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        input[type="submit"]:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Compare Two Audio Files</h1>
+
+    <form id="compareForm" method="POST" enctype="multipart/form-data">
+        <label for="file1">Choose first audio file:</label><br>
+        <input type="file" id="file1" name="file1" accept="audio/*" required><br>
+
+        <label for="file2">Choose second audio file:</label><br>
+        <input type="file" id="file2" name="file2" accept="audio/*" required><br>
+
+        <input type="submit" value="Compare">
+    </form>
+
+    <h2 id="result"></h2>
+
+    <script>
+        const form = document.getElementById('compareForm');
+        form.addEventListener('submit', async function(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(form);
+            
+            try {
+                const response = await fetch('/compare', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('result').textContent = 'Difference between files: ' + result.difference;
+                } else {
+                    document.getElementById('result').textContent = 'Error: ' + result.error;
+                }
+
+            } catch (error) {
+                document.getElementById('result').textContent = 'Error: ' + error.message;
+            }
+        });
+    </script>
+
+</body>
+</html>
