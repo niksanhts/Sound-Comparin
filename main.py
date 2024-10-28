@@ -1,5 +1,6 @@
-from flask import Flask, request, jsonify, render_template, url_for
+from flask import Flask, request, jsonify, render_template
 from algorithm import compare_melodies
+import io
 
 app = Flask(__name__)
 
@@ -17,13 +18,12 @@ def compare_files():
         file1 = request.files['file1']
         file2 = request.files['file2']
 
-        # Сохраняем временные файлы для обработки
-        file1.save('temp1.mp3')
-        file2.save('temp2.mp3')
+        # Читаем файлы в память
+        file1_bytes = io.BytesIO(file1.read())
+        file2_bytes = io.BytesIO(file2.read())
 
-        file_path1 = '/Users/sarafanovnikita/Desktop/Sound Comparin(clean)/temp1.mp3'
-        file_path2 = '/Users/sarafanovnikita/Desktop/Sound Comparin(clean)/temp2.mp3'
-        index = round(compare_melodies(file_path1, file_path2), 2)
+        # Передаем байтовые потоки в функцию сравнения мелодий
+        index = compare_melodies(file1_bytes, file2_bytes)
         
         return jsonify({"difference": index})
 
