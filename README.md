@@ -1,6 +1,4 @@
-*SOUND COMPARIN*
-
-**в файле "todo" расположены текущие цели работы**
+# SOUND COMPARING
 
 # Melody Comparison Application
 
@@ -14,7 +12,7 @@ This is a Flask web application that allows users to compare two audio files (me
 
 ## Requirements
 
-- Python 3.6 or higher
+- Python 3.9
 - Flask
 - Librosa
 - NumPy
@@ -24,6 +22,6 @@ This is a Flask web application that allows users to compare two audio files (me
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/yourusername/melody-comparison.git
+   git clone https://github.com/niksanhts/melody-comparison.git
    cd melody-comparison
    ```
