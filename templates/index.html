@@ -3,25 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>
-        Audio File Comparator
-    </title>
+    <title>Audio File Comparator</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             text-align: center;
             padding: 50px;
+            background-color: #f4f4f4;
         }
         form {
             display: inline-block;
             padding: 20px;
             border: 1px solid #ccc;
             border-radius: 10px;
+            background-color: white;
         }
-        input[type="file"] {
+        input[type="file"], button {
             margin-bottom: 10px;
         }
-        input[type="submit"] {
+        input[type="submit"], button {
             padding: 10px 20px;
             background-color: #4CAF50;
             color: white;
@@ -29,8 +29,25 @@
             border-radius: 5px;
             cursor: pointer;
         }
-        input[type="submit"]:hover {
+        input[type="submit"]:hover, button:hover {
             background-color: #45a049;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fff;
+            text-align: left;
+            display: inline-block;
+            max-width: 600px;
+            width: 100%;
+        }
+        .result-item {
+            margin: 10px 0;
+        }
+        .result-item strong {
+            color: #333;
         }
     </style>
 </head>
@@ -40,41 +57,98 @@
 
     <form id="compareForm" method="POST" enctype="multipart/form-data">
         <label for="file1">Choose first audio file:</label><br>
-        <input type="file" id="file1" name="file1" accept="audio/*" required><br>
+        <input type="file" id="file1" name="file1" accept="audio/*"><br>
 
         <label for="file2">Choose second audio file:</label><br>
-        <input type="file" id="file2" name="file2" accept="audio/*" required><br>
+        <input type="file" id="file2" name="file2" accept="audio/*"><br>
 
+        <button type="button" id="recordButton">Record Audio</button>
         <input type="submit" value="Compare">
     </form>
 
-    <h2 id="result"></h2>
+    <div id="result"></div>
 
     <script>
-        const form = document.getElementById('compareForm');
-        form.addEventListener('submit', async function(event) {
-            event.preventDefault();
-            
-            const formData = new FormData(form);
-            
-            try {
+        let mediaRecorder;
+        let audioChunks = [];
+
+        document.getElementById('recordButton').addEventListener('click', async () => {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.start();
+
+            audioChunks = [];
+
+            mediaRecorder.ondataavailable = event => {
+                audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                const formData = new FormData();
+                formData.append('file1', audioBlob, 'recorded_audio.wav');
+
                 const response = await fetch('/compare', {
                     method: 'POST',
                     body: formData
                 });
 
                 const result = await response.json();
+                displayResult(result);
+            };
 
-                if (response.ok) {
-                    document.getElementById('result').textContent = 'Difference between files: ' + result.difference;
-                } else {
-                    document.getElementById('result').textContent = 'Error: ' + result.error;
-                }
-
-            } catch (error) {
-                document.getElementById('result').textContent = 'Error: ' + error.message;
-            }
+            mediaRecorder.stop();
+            alert('Recording stopped. Processing audio...');
         });
+
+        const form = document.getElementById('compareForm');
+        form.addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const formData = new FormData(form);
+            const response = await fetch('/compare', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+            displayResult(result);
+        });
+
+        function displayResult(result) {
+            const resultElement = document.getElementById('result');
+            resultElement.innerHTML = ''; // Очистить предыдущие результаты
+
+            if (result) {
+                const integralIndicator = document.createElement('div');
+                integralIndicator.className = 'result-item';
+                integralIndicator.innerHTML = `<strong>Integral Indicator:</strong> ${result.integral_indicator}`;
+
+                const rhythm = document.createElement('div');
+                rhythm.className = 'result-item';
+                rhythm.innerHTML = `<strong>Rhythm:</strong> ${result.rhythm.join(', ')}`;
+
+                const height = document.createElement('div');
+                height.className = 'result-item';
+                height.innerHTML = `<strong>Height:</strong> ${result.height.join(', ')}`;
+
+                const volume1 = document.createElement('div');
+                volume1.className = 'result-item';
+                volume1.innerHTML = `<strong>Volume 1:</strong> ${result.volume1.join(', ')}`;
+
+                const volume2 = document.createElement('div');
+                volume2.className = 'result-item';
+                volume2.innerHTML = `<strong>Volume 2:</strong> ${result.volume2.join(', ')}`;
+
+                // Добавляем все элементы результата в контейнер
+                resultElement.appendChild(integralIndicator);
+                resultElement.appendChild(rhythm);
+                resultElement.appendChild(height);
+                resultElement.appendChild(volume1);
+                resultElement.appendChild(volume2);
+            } else {
+                resultElement.innerHTML = 'Ошибка при получении результатов.';
+            }
+        }
     </script>
 
 </body>

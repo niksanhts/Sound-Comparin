@@ -2,116 +2,128 @@ import librosa
 import librosa.feature
 import numpy as np
 from math import floor
+import logging
 
-# Первый модуль
-# Приведение мелодии к виду, пригодному для обработки
+
+logging.basicConfig(level=logging.INFO,  
+                    format='%(asctime)s - %(levelname)s - %(message)s') 
+
 def start_comparing(file_bytes):
-    # Загрузка аудиозаписи из байтового потока и обрезка шумов в начале и конце мелодии
-    tm, srt = librosa.load(file_bytes, sr=None)  # Загрузка без изменения частоты
-    tmt, _ = librosa.effects.trim(tm, top_db=14)
+    logging.info("Начало сравнения аудиофайла")
+    try:
+        tm, srt = librosa.load(file_bytes, sr=None)
+        logging.info("Аудиофайл загружен успешно")
+        
+        tmt, _ = librosa.effects.trim(tm, top_db=14)
+        logging.info("Аудиофайл обрезан по тишине")
+        
+        tmt_mel = librosa.feature.melspectrogram(y=tmt, sr=srt, n_mels=64)
+        logging.info("Мелоспектрограмма вычислена")
+        
+        tmt_db_mel = librosa.amplitude_to_db(tmt_mel)[4:9]
+        tmt_db_mel_transposed = np.transpose(tmt_db_mel)
+        time_t = librosa.get_duration(y=tmt, sr=srt)
+        min_per_t = round(len(tmt_db_mel_transposed)) / (time_t * 4)
+        
+        teacher_melody = []
+        counter = 0
 
-    # Расчет мел-спектрограммы, вывод матрицы значений
-    tmt_mel = librosa.feature.melspectrogram(y=tmt, sr=srt, n_mels=64)
-    tmt_db_mel = librosa.amplitude_to_db(tmt_mel)[4:9]
+        for i in tmt_db_mel_transposed:
+            if all(val < 0 for val in i):
+                counter += 1
+            else:
+                max_index = np.argmax(i)
+                teacher_melody.append(max_index + (round(max(i)) / 100))
+                teacher_melody.extend([0.0] * counter)
+                counter = 0
 
-    # Подготовка матрицы к обработке
-    tmt_db_mel_transposed = np.transpose(tmt_db_mel)
+        logging.info("Сравнение аудиофайла завершено, найдено %d нот", len(teacher_melody))
+        return teacher_melody, min_per_t
 
-    # Расчет длительности мелодии
-    time_t = librosa.get_duration(S=tmt_mel, sr=srt)
-    min_per_t = round(len(tmt_db_mel_transposed)) / (time_t * 4)
+    except Exception as e:
+        logging.error("Ошибка в функции start_comparing: %s", str(e))
+        return None, None
 
-    # Цикл возвращает последовательность значений всей аудиозаписи
-    teacher_melody = []
-    counter = 0
-
-    for i in tmt_db_mel_transposed:
-        if all(map(lambda y: y < 0, i)):
-            counter += 1
-        else:
-            max_index = [y for y, val in enumerate(i) if val == max(i)]
-            teacher_melody.append(int(max_index[0]) + ((round(max(i))) / 100))
-            while counter > 0:
-                teacher_melody.append(float(0))
-                counter -= 1
-
-    return teacher_melody, min_per_t
-
-# Второй модуль
-# Синхронизация мелодий и устранение временной разнесенности нот
 def sync(teacher_melody, children_melody, min_per_t, min_per_c):
-    counter_t = 0
-    counter_c = 0
-    all_t = []
-    all_c = []
-    freq_t = []
-    freq_c = []
-    t_m = []
-    c_m = []
+    logging.info("Начало синхронизации мелодий")
+    try:
+        all_t, freq_t, t_m = extract_notes(teacher_melody, min_per_t)
+        all_c, freq_c, c_m = extract_notes(children_melody, min_per_c)
+        logging.info("Синхронизация завершена")
+        return all_t, all_c, freq_t, freq_c, t_m, c_m
+    except Exception as e:
+        logging.error("Ошибка в функции sync: %s", str(e))
+        return None, None, None, None, None, None
 
-    for i in range(len(teacher_melody) - 1):
-        if floor(teacher_melody[i]) == floor(teacher_melody[i + 1]):
-            counter_t += 1
-        elif counter_t >= min_per_t:
-            all_t.append(floor(teacher_melody[i]) + counter_t / 100)
-            freq_t.append(floor(teacher_melody[i]))
-            t_m.append(counter_t)
-            counter_t = 0
+def extract_notes(melody, min_per):
+    logging.info("Начало извлечения нот")
+    counter = 0
+    all_notes = []
+    freq = []
+    lengths = []
 
-    for i in range(len(children_melody) - 1):
-        if floor(children_melody[i]) == floor(children_melody[i + 1]):
-            counter_c += 1
-        elif counter_c >= min_per_c:
-            all_c.append(floor(children_melody[i]) + counter_c / 100)
-            freq_c.append(floor(children_melody[i]))
-            c_m.append(counter_c)
-            counter_c = 0
+    try:
+        for i in range(len(melody) - 1):
+            if floor(melody[i]) == floor(melody[i + 1]):
+                counter += 1
+            elif counter >= min_per:
+                all_notes.append(floor(melody[i]) + counter / 100)
+                freq.append(floor(melody[i]))
+                lengths.append(counter)
+                counter = 0
 
-    return all_t, all_c, freq_t, freq_c, t_m, c_m
+        logging.info("Извлечение нот завершено, найдено %d нот", len(all_notes))
+        return all_notes, freq, lengths
 
-# Третий модуль
-# Проверка нот и приведение их к одной длине
+    except Exception as e:
+        logging.error("Ошибка в функции extract_notes: %s", str(e))
+        return [], [], []
+
 def check_notes(all_t, all_c, freq_t, freq_c, t_m, c_m, teacher_melody, children_melody):
+    logging.info("Начало проверки нот")
     exec_t = []
     exec_c = []
 
-    if len(all_t) != len(all_c):
-        for i in range(min(len(all_t), len(all_c)) - 3):
-            if all_c[i] != all_t[i] and all_c[i + 1:i + 3] == all_t[i:i + 2]:
-                exec_c.append(i + all_c[i] % 1)
-            elif all_c[i] != all_t[i] and all_c[i:i + 2] == all_t[i + 1:i + 3]:
-                exec_t.append(i + all_t[i] % 1)
+    try:
+        if len(all_t) != len(all_c):
+            for i in range(min(len(all_t), len(all_c)) - 3):
+                if all_c[i] != all_t[i] and all_c[i + 1:i + 3] == all_t[i:i + 2]:
+                    exec_c.append(i + all_c[i] % 1)
+                elif all_c[i] != all_t[i] and all_c[i:i + 2] == all_t[i + 1:i + 3]:
+                    exec_t.append(i + all_t[i] % 1)
 
-    while exec_c:
-        idx = floor(exec_c[0])
-        t_m.insert(idx, 1)
-        freq_t.insert(idx, 6)
-        exec_c = list(map(lambda y: y + 1, exec_c[1:]))
+        for idx in exec_c:
+            idx = floor(idx)
+            t_m.insert(idx, 1)
+            freq_t.insert(idx, 6)
 
-    while exec_t:
-        idx = floor(exec_t[0])
-        c_m.insert(idx, 1)
-        freq_c.insert(idx, 6)
-        exec_t = list(map(lambda y: y + 1, exec_t[1:]))
+        for idx in exec_t:
+            idx = floor(idx)
+            c_m.insert(idx, 1)
+            freq_c.insert(idx, 6)
 
-    max_length = max(len(teacher_melody), len(children_melody))
-    teacher_melody.extend([0.0] * (max_length - len(teacher_melody)))
-    children_melody.extend([0.0] * (max_length - len(children_melody)))
+        max_length = max(len(teacher_melody), len(children_melody))
+        teacher_melody.extend([0.0] * (max_length - len(teacher_melody)))
+        children_melody.extend([0.0] * (max_length - len(children_melody)))
 
-    max_length = max(len(freq_t), len(freq_c))
-    freq_t.extend([0] * (max_length - len(freq_t)))
-    freq_c.extend([0] * (max_length - len(freq_c)))
+        max_length = max(len(freq_t), len(freq_c))
+        freq_t.extend([0] * (max_length - len(freq_t)))
+        freq_c.extend([0] * (max_length - len(freq_c)))
 
-    max_length = max(len(t_m), len(c_m))
-    t_m.extend([1] * (max_length - len(t_m)))
-    c_m.extend([1] * (max_length - len(c_m)))
+        max_length = max(len(t_m), len(c_m))
+        t_m.extend([1] * (max_length - len(t_m)))
+        c_m.extend([1] * (max_length - len(c_m)))
 
-    return teacher_melody, children_melody, freq_t, freq_c, t_m, c_m
+        logging.info("Проверка нот завершена")
+        return teacher_melody, children_melody, freq_t, freq_c, t_m, c_m
 
-# Четвертый модуль
-# Сравнение мелодий
-def compare(t_m, c_m, freq_t, freq_c, teacher_melody, children_melody):
-    # Сравнение громкости
+    except Exception as e:
+        logging.error("Ошибка в функции check_notes: %s", str(e))
+        return teacher_melody, children_melody, freq_t, freq_c, t_m, c_m
+
+
+def compare(t_m, c_m, freq_t, freq_c, teacher_melody, children_melody, time_c):
+    logging.info("Начало сравнения мелодий")
     res_loud = []
     teacher_melody = [round((y % 1) * 100) for y in teacher_melody]
     children_melody = [round((y % 1) * 100) for y in children_melody]
@@ -128,7 +140,6 @@ def compare(t_m, c_m, freq_t, freq_c, teacher_melody, children_melody):
         counter_t += t_m[i]
         counter_c += c_m[i]
 
-    # Сравнение ритма
     res_rhythm = []
     for i in range(len(t_m)):
         if abs((t_m[i] - c_m[i]) / t_m[i]) <= 0.25:
@@ -137,7 +148,11 @@ def compare(t_m, c_m, freq_t, freq_c, teacher_melody, children_melody):
             diff = abs(c_m[i] - t_m[i])
             res_rhythm += [0] * min(t_m[i], c_m[i]) + [1] * diff
 
-    # Сравнение частот
+    res_average = []
+    max_c = max(children_melody) if children_melody else 1
+    for i in range(len(children_melody)):
+        res_average.append(round(children_melody[i] / max_c, 2))
+
     res_frequency = []
     for i in range(len(freq_t)):
         if freq_t[i] == freq_c[i]:
@@ -145,23 +160,64 @@ def compare(t_m, c_m, freq_t, freq_c, teacher_melody, children_melody):
         else:
             res_frequency += [1] * c_m[i]
 
-    # Итоговый интегральный показатель
     total_errors = res_rhythm + res_frequency
     integral_indicator = 1 - round(sum(total_errors) / len(total_errors), 2)
+    rhythm = res_character(res_rhythm, time_c)
+    height = res_character(res_frequency, time_c)
+    volume1 = res_character(res_loud, time_c)
+    volume2 = res_average
 
-    return integral_indicator
+    logging.info("Сравнение мелодий завершено")
+    return integral_indicator, rhythm, height, volume1, volume2
 
-# Финальная функция
-def compare_melodies(file_path1, file_path2):
-    teacher_melody, min_per_t = start_comparing(file_path1)
-    children_melody, min_per_c = start_comparing(file_path2)
 
-    all_t, all_c, freq_t, freq_c, t_m, c_m = sync(teacher_melody, children_melody, min_per_t, min_per_c)
+def res_character(x, time):
+    logging.info("Начало обработки характеристик")
+    y = []
+    time = round(time, 2)
+    count_of_values = round(time * 4)
 
-    teacher_melody, children_melody, freq_t, freq_c, t_m, c_m = check_notes(
-        all_t, all_c, freq_t, freq_c, t_m, c_m, teacher_melody, children_melody
-    )
+    if count_of_values == 0:
+        logging.warning("Время равно нулю, возвращаем пустой список")
+        return y
 
-    index = compare(t_m, c_m, freq_t, freq_c, teacher_melody, children_melody)
+    while len(x) >= count_of_values:
+        c = sum(x[:count_of_values]) / count_of_values
+        y.append(1 if c >= 0.5 else 0)
+        x = x[count_of_values:]
 
-    return index
+    if len(x) > 0:
+        c = sum(x) / len(x)
+        y.append(1 if c >= 0.5 else 0)
+
+    logging.info("Обработка характеристик завершена, найдено %d значений", len(y))
+    return y
+
+
+def compare_melodies(file1, file2):
+    logging.info("Начало сравнения мелодий")
+    try:
+        teacher_melody, min_per_t = start_comparing(file1)
+        if teacher_melody is None:
+            logging.error("Не удалось получить мелодию учителя")
+            return None
+
+        children_melody, min_per_c = start_comparing(file2)
+        if children_melody is None:
+            logging.error("Не удалось получить мелодию ребенка")
+            return None
+
+        all_t, all_c, freq_t, freq_c, t_m, c_m = sync(teacher_melody, children_melody, min_per_t, min_per_c)
+
+        teacher_melody, children_melody, freq_t, freq_c, t_m, c_m = check_notes(
+            all_t, all_c, freq_t, freq_c, t_m, c_m, teacher_melody, children_melody
+        )
+
+        result = compare(t_m, c_m, freq_t, freq_c, teacher_melody, children_melody, 2)
+        logging.info("Сравнение мелодий завершено")
+        return result
+
+    except Exception as e:
+        logging.error("Ошибка в функции compare_melodies: %s", str(e))
+        return None
+
